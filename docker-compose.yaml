@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  server:
+    build: 
+      context: ./ocean-backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./ocean-backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - mail
+    restart: always
+
+  frontend:
+    build:
+      context: ./ocean-frontend/
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "3000:8080"
+    depends_on:
+      - server
+    restart: always
+  
+  worker:
+    build: ./ocean-backend
+    command: celery -A worker worker --loglevel=info
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - server
+      - redis
+    restart: always
+
+  db:
+    image: postgres:15
+    env_file:
+      - ./ocean-backend/.env
+    volumes:
+      - ./ocean-backend/data:/var/lib/postgresql/data/
+    expose:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ocean"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - 5432:5432
+    restart: always
+
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+
+  mail:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: always
+  
+  dashboard:
+    build: ./ocean-backend
+    command: celery -A worker flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - server
+      - redis
+      - worker
+    restart: always
+
+volumes:
+  postgres_data:
